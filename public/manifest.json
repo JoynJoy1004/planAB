@@ -1,0 +1,9 @@
+{
+  "short_name": "노후설계",
+  "name": "미래 노후 설계",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#060d17",
+  "background_color": "#060d17",
+  "orientation": "portrait"
+}
