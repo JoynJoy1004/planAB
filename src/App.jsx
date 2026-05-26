@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 const formatKRW = (n) =>
   n >= 100000000 ? `${(n / 100000000).toFixed(1)}억`
@@ -18,11 +18,14 @@ const inputStyle = {
   color: "#e0f0ff", padding: "8px 12px", fontSize: 14, width: "100%", outline: "none",
 };
 const labelStyle = { fontSize: 12, color: "#6b9fca", marginBottom: 4, display: "block" };
-
 const btnSmall = (color = "#7ec8e3") => ({
   padding: "3px 10px", borderRadius: 12, border: `1px solid ${color}`,
   background: "transparent", color, fontSize: 11, cursor: "pointer",
 });
+
+// localStorage 헬퍼
+const save = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) {} };
+const load = (key, def) => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch(e) { return def; } };
 
 function IsaTimeline({ isaOpenYear, isaCycle }) {
   const plans = [];
@@ -90,75 +93,90 @@ function DonutChart({ data, size = 140 }) {
   );
 }
 
+const initRecords = () => {
+  const init = {};
+  for (let y = now.getFullYear() - 1; y <= 2030; y++) {
+    for (let m = 0; m < 12; m++) {
+      init[`${y}-${m}`] = { isa: false, pension: false, extraIsa: 0, extraPension: 0 };
+    }
+  }
+  return init;
+};
+
 export default function App() {
   const [tab, setTab] = useState("dashboard");
+  const [saved, setSaved] = useState(false);
 
   // 기본 설정
-  const [currentAge, setCurrentAge] = useState(35);
-  const [retireAge, setRetireAge] = useState(60);
-  const [targetAmount, setTargetAmount] = useState(500000000);
-  const [isaMonthly, setIsaMonthly] = useState(300000);
-  const [isaBalance, setIsaBalance] = useState(5000000);
-  const [isaRate, setIsaRate] = useState(5);
-  const [pensionMonthly, setPensionMonthly] = useState(300000);
-  const [pensionBalance, setPensionBalance] = useState(3000000);
-  const [pensionRate, setPensionRate] = useState(6);
-  const [isaOpenYear, setIsaOpenYear] = useState(2023);
-  const [isaCycle, setIsaCycle] = useState(5);
+  const [currentAge, setCurrentAge] = useState(() => load("currentAge", 35));
+  const [retireAge, setRetireAge] = useState(() => load("retireAge", 60));
+  const [targetAmount, setTargetAmount] = useState(() => load("targetAmount", 500000000));
+  const [isaMonthly, setIsaMonthly] = useState(() => load("isaMonthly", 0));
+  const [isaBalance, setIsaBalance] = useState(() => load("isaBalance", 0));
+  const [isaRate, setIsaRate] = useState(() => load("isaRate", 5));
+  const [pensionMonthly, setPensionMonthly] = useState(() => load("pensionMonthly", 0));
+  const [pensionBalance, setPensionBalance] = useState(() => load("pensionBalance", 0));
+  const [pensionRate, setPensionRate] = useState(() => load("pensionRate", 6));
+  const [isaOpenYear, setIsaOpenYear] = useState(() => load("isaOpenYear", now.getFullYear()));
+  const [isaCycle, setIsaCycle] = useState(() => load("isaCycle", 5));
 
-  // 보유 종목
-  const [holdings, setHoldings] = useState([
-    { id: 1, account: "ISA", name: "TIGER 미국배당다우존스", shares: 5, avgPrice: 12000, currentPrice: 13200, dividendPerShare: 45, dividendMonth: "월" },
-    { id: 2, account: "ISA", name: "TIGER 미국나스닥100", shares: 1, avgPrice: 85000, currentPrice: 92000, dividendPerShare: 0, dividendMonth: "-" },
-    { id: 3, account: "연금", name: "TIGER 미국S&P500", shares: 3, avgPrice: 15000, currentPrice: 16500, dividendPerShare: 0, dividendMonth: "-" },
-  ]);
+  // 종목
+  const [holdings, setHoldings] = useState(() => load("holdings", []));
   const [showAddHolding, setShowAddHolding] = useState(false);
   const [editHolding, setEditHolding] = useState(null);
   const [newHolding, setNewHolding] = useState({ account: "ISA", name: "", shares: 1, avgPrice: 0, currentPrice: 0, dividendPerShare: 0, dividendMonth: "월" });
 
-  // 추가매수 기록
-  const [extraBuys, setExtraBuys] = useState([]);
+  // 추가매수
+  const [extraBuys, setExtraBuys] = useState(() => load("extraBuys", []));
   const [showAddExtraBuy, setShowAddExtraBuy] = useState(false);
   const [editExtraBuy, setEditExtraBuy] = useState(null);
   const [newExtraBuy, setNewExtraBuy] = useState({ name: "", shares: 1, price: 0, date: `${now.getFullYear()}-${now.getMonth() + 1}`, account: "ISA", memo: "" });
 
-  // 배당 기록
-  const [dividendLogs, setDividendLogs] = useState([
-    { id: 1, month: `${now.getFullYear()}-4`, name: "TIGER 미국배당다우존스", amount: 225, reinvested: true },
-    { id: 2, month: `${now.getFullYear()}-3`, name: "TIGER 미국배당다우존스", amount: 225, reinvested: true },
-  ]);
+  // 배당
+  const [dividendLogs, setDividendLogs] = useState(() => load("dividendLogs", []));
   const [showAddDiv, setShowAddDiv] = useState(false);
   const [editDiv, setEditDiv] = useState(null);
   const [newDiv, setNewDiv] = useState({ name: "", amount: 0, month: `${now.getFullYear()}-${now.getMonth() + 1}`, reinvested: true });
 
-  // 납입 기록
+  // 납입기록
   const [records, setRecords] = useState(() => {
-    const init = {};
-    const startYear = now.getFullYear() - 1;
-    for (let y = startYear; y <= 2030; y++) {
-      for (let m = 0; m < 12; m++) {
-        init[`${y}-${m}`] = { isa: false, pension: false, extraIsa: 0, extraPension: 0 };
-      }
-    }
-    return init;
+    const saved = load("records", null);
+    if (saved) return saved;
+    return initRecords();
   });
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
-  const [editRecord, setEditRecord] = useState(null);
 
   const YEARS = [];
   for (let y = now.getFullYear() - 1; y <= 2030; y++) YEARS.push(y);
+
+  // 자동 저장
+  useEffect(() => { save("currentAge", currentAge); }, [currentAge]);
+  useEffect(() => { save("retireAge", retireAge); }, [retireAge]);
+  useEffect(() => { save("targetAmount", targetAmount); }, [targetAmount]);
+  useEffect(() => { save("isaMonthly", isaMonthly); }, [isaMonthly]);
+  useEffect(() => { save("isaBalance", isaBalance); }, [isaBalance]);
+  useEffect(() => { save("isaRate", isaRate); }, [isaRate]);
+  useEffect(() => { save("pensionMonthly", pensionMonthly); }, [pensionMonthly]);
+  useEffect(() => { save("pensionBalance", pensionBalance); }, [pensionBalance]);
+  useEffect(() => { save("pensionRate", pensionRate); }, [pensionRate]);
+  useEffect(() => { save("isaOpenYear", isaOpenYear); }, [isaOpenYear]);
+  useEffect(() => { save("isaCycle", isaCycle); }, [isaCycle]);
+  useEffect(() => { save("holdings", holdings); }, [holdings]);
+  useEffect(() => { save("extraBuys", extraBuys); }, [extraBuys]);
+  useEffect(() => { save("dividendLogs", dividendLogs); }, [dividendLogs]);
+  useEffect(() => { save("records", records); }, [records]);
+
+  const showSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 1500); };
 
   const toggleRecord = (month, type) => {
     const key = `${selectedYear}-${month}`;
     setRecords(prev => ({ ...prev, [key]: { ...prev[key], [type]: !prev[key]?.[type] } }));
   };
-
   const updateExtraAmount = (month, type, value) => {
     const key = `${selectedYear}-${month}`;
     setRecords(prev => ({ ...prev, [key]: { ...prev[key], [type]: Number(value) } }));
   };
 
-  // 계산
   const calc = useMemo(() => {
     const months = (retireAge - currentAge) * 12;
     if (months <= 0) return null;
@@ -177,22 +195,24 @@ export default function App() {
   const holdingCalc = useMemo(() => {
     const isaH = holdings.filter(h => h.account === "ISA");
     const penH = holdings.filter(h => h.account === "연금");
-    const totalIsaVal = isaH.reduce((a, h) => a + h.currentPrice * h.shares, 0);
-    const totalPenVal = penH.reduce((a, h) => a + h.currentPrice * h.shares, 0);
-    const totalIsaCost = isaH.reduce((a, h) => a + h.avgPrice * h.shares, 0);
-    const totalPenCost = penH.reduce((a, h) => a + h.avgPrice * h.shares, 0);
     const annualDiv = holdings.reduce((a, h) => {
       const freq = h.dividendMonth === "월" ? 12 : h.dividendMonth === "분기" ? 4 : h.dividendMonth === "반기" ? 2 : h.dividendMonth === "연" ? 1 : 0;
       return a + h.dividendPerShare * h.shares * freq;
     }, 0);
-    return { isaH, penH, totalIsaVal, totalPenVal, totalIsaCost, totalPenCost, annualDiv };
+    return {
+      isaH, penH,
+      totalIsaVal: isaH.reduce((a, h) => a + h.currentPrice * h.shares, 0),
+      totalPenVal: penH.reduce((a, h) => a + h.currentPrice * h.shares, 0),
+      totalIsaCost: isaH.reduce((a, h) => a + h.avgPrice * h.shares, 0),
+      totalPenCost: penH.reduce((a, h) => a + h.avgPrice * h.shares, 0),
+      annualDiv,
+    };
   }, [holdings]);
 
   const yearSummary = useMemo(() => {
     let isa = 0, pension = 0, extraIsa = 0, extraPension = 0;
     for (let m = 0; m < 12; m++) {
-      const key = `${selectedYear}-${m}`;
-      const rec = records[key] || {};
+      const rec = records[`${selectedYear}-${m}`] || {};
       if (rec.isa) isa++;
       if (rec.pension) pension++;
       extraIsa += rec.extraIsa || 0;
@@ -239,12 +259,24 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(160deg,#060d17 0%,#0a1628 60%,#06111e 100%)", fontFamily: "'Pretendard','Noto Sans KR',sans-serif", color: "#cfe4f7", paddingBottom: 40 }}>
+      {/* 저장 토스트 */}
+      {saved && (
+        <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: "#34d399", color: "#06111e", padding: "8px 20px", borderRadius: 20, fontSize: 13, fontWeight: 700, zIndex: 9999 }}>
+          ✓ 저장됐어요!
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ background: "linear-gradient(90deg,#0a1f3a,#0d2848)", borderBottom: "1px solid #1e3a5f", padding: "20px 24px 0" }}>
         <div style={{ maxWidth: 640, margin: "0 auto" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 2 }}>
-            <span style={{ fontSize: 22 }}>🌙</span>
-            <h1 style={{ fontSize: 18, fontWeight: 700, color: "#7ec8e3", margin: 0 }}>미래 노후 설계</h1>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 22 }}>🌙</span>
+              <h1 style={{ fontSize: 18, fontWeight: 700, color: "#7ec8e3", margin: 0 }}>미래 노후 설계</h1>
+            </div>
+            <div style={{ fontSize: 10, color: "#34d399", background: "#06200f", padding: "3px 10px", borderRadius: 12 }}>
+              💾 자동저장 ON
+            </div>
           </div>
           <p style={{ fontSize: 12, color: "#4a7fa8", margin: "0 0 12px" }}>ISA · 개인연금 통합 관리</p>
           <div style={{ display: "flex", gap: 2, overflowX: "auto", paddingBottom: 2 }}>
@@ -264,66 +296,90 @@ export default function App() {
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 14px 0" }}>
 
         {/* ══ DASHBOARD ══ */}
-        {tab === "dashboard" && calc && (
+        {tab === "dashboard" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ ...cardStyle, textAlign: "center" }}>
-              <p style={{ fontSize: 12, color: "#4a7fa8", margin: "0 0 12px" }}>{currentAge}세 → {retireAge}세 · {yearsLeft}년 남음</p>
-              <div style={{ display: "flex", justifyContent: "center", gap: 28 }}>
-                {[
-                  { label: "은퇴 시 예상", value: formatKRW(calc.totalFV), pct: calc.progress, color: "#7ec8e3" },
-                  { label: "현재 잔액", value: formatKRW(calc.currentTotal), pct: calc.currentProgress, color: "#f0a500" },
-                ].map(c => (
-                  <div key={c.label} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                    <CircleProgress value={c.pct} size={128} stroke={11} color={c.color}>
-                      <div style={{ textAlign: "center" }}>
-                        <div style={{ fontSize: 19, fontWeight: 800, color: c.color }}>{c.pct.toFixed(1)}%</div>
-                        <div style={{ fontSize: 9, color: "#4a7fa8" }}>달성률</div>
+            {calc ? (
+              <>
+                <div style={{ ...cardStyle, textAlign: "center" }}>
+                  <p style={{ fontSize: 12, color: "#4a7fa8", margin: "0 0 12px" }}>{currentAge}세 → {retireAge}세 · {yearsLeft}년 남음</p>
+                  <div style={{ display: "flex", justifyContent: "center", gap: 28 }}>
+                    {[
+                      { label: "은퇴 시 예상", value: formatKRW(calc.totalFV), pct: calc.progress, color: "#7ec8e3" },
+                      { label: "현재 잔액", value: formatKRW(calc.currentTotal), pct: calc.currentProgress, color: "#f0a500" },
+                    ].map(c => (
+                      <div key={c.label} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <CircleProgress value={c.pct} size={128} stroke={11} color={c.color}>
+                          <div style={{ textAlign: "center" }}>
+                            <div style={{ fontSize: 19, fontWeight: 800, color: c.color }}>{c.pct.toFixed(1)}%</div>
+                            <div style={{ fontSize: 9, color: "#4a7fa8" }}>달성률</div>
+                          </div>
+                        </CircleProgress>
+                        <div style={{ fontSize: 11, color: "#6b9fca", marginTop: 6 }}>{c.label}</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#e0f0ff" }}>{c.value}</div>
                       </div>
-                    </CircleProgress>
-                    <div style={{ fontSize: 11, color: "#6b9fca", marginTop: 6 }}>{c.label}</div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: "#e0f0ff" }}>{c.value}</div>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 14, padding: "10px 16px", background: "#081525", borderRadius: 10, fontSize: 13, color: "#6b9fca" }}>
+                    목표 <span style={{ color: "#f0a500", fontWeight: 700 }}>{formatKRW(targetAmount)}</span> 까지 <span style={{ color: "#7ec8e3", fontWeight: 700 }}>{formatKRW(Math.max(0, targetAmount - calc.totalFV))}</span> 남았어요
+                  </div>
+                </div>
+
+                {/* ISA / 연금 카드 */}
+                {[
+                  { label: "ISA 계좌", color: "#7ec8e3", fv: calc.isaFV, monthly: isaMonthly, balance: isaBalance, icon: "💎", holdings: holdingCalc.isaH },
+                  { label: "개인연금", color: "#a78bfa", fv: calc.pensionFV, monthly: pensionMonthly, balance: pensionBalance, icon: "🏦", holdings: holdingCalc.penH },
+                ].map(acc => (
+                  <div key={acc.label} style={cardStyle}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: acc.color }}>{acc.icon} {acc.label}</span>
+                      <span style={{ fontSize: 11, color: "#4a7fa8" }}>{acc.holdings.length}종목 보유</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                      {[{ label: "현재 잔액", value: formatKRW(acc.balance) }, { label: "월 납입", value: formatKRW(acc.monthly) }, { label: "은퇴 예상", value: formatKRW(acc.fv) }].map(item => (
+                        <div key={item.label} style={{ background: "#081525", borderRadius: 10, padding: "9px 6px", textAlign: "center" }}>
+                          <div style={{ fontSize: 10, color: "#4a7fa8", marginBottom: 3 }}>{item.label}</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: acc.color }}>{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ height: 5, background: "#1e3a5f", borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${Math.min((acc.fv / targetAmount) * 100, 100)}%`, background: `linear-gradient(90deg,${acc.color}88,${acc.color})`, borderRadius: 3, transition: "width 0.8s" }} />
+                      </div>
+                    </div>
                   </div>
                 ))}
-              </div>
-              <div style={{ marginTop: 14, padding: "10px 16px", background: "#081525", borderRadius: 10, fontSize: 13, color: "#6b9fca" }}>
-                목표 <span style={{ color: "#f0a500", fontWeight: 700 }}>{formatKRW(targetAmount)}</span> 까지 <span style={{ color: "#7ec8e3", fontWeight: 700 }}>{formatKRW(Math.max(0, targetAmount - calc.totalFV))}</span> 남았어요
-              </div>
-            </div>
-            {[
-              { label: "ISA 계좌", color: "#7ec8e3", fv: calc.isaFV, monthly: isaMonthly, balance: isaBalance, icon: "💎" },
-              { label: "개인연금", color: "#a78bfa", fv: calc.pensionFV, monthly: pensionMonthly, balance: pensionBalance, icon: "🏦" },
-            ].map(acc => (
-              <div key={acc.label} style={cardStyle}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: acc.color }}>{acc.icon} {acc.label}</span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                  {[{ label: "현재 잔액", value: formatKRW(acc.balance) }, { label: "월 납입", value: formatKRW(acc.monthly) }, { label: "은퇴 예상", value: formatKRW(acc.fv) }].map(item => (
-                    <div key={item.label} style={{ background: "#081525", borderRadius: 10, padding: "9px 6px", textAlign: "center" }}>
-                      <div style={{ fontSize: 10, color: "#4a7fa8", marginBottom: 3 }}>{item.label}</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: acc.color }}>{item.value}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ height: 5, background: "#1e3a5f", borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${Math.min((acc.fv / targetAmount) * 100, 100)}%`, background: `linear-gradient(90deg,${acc.color}88,${acc.color})`, borderRadius: 3, transition: "width 0.8s" }} />
+
+                {/* 종합 요약 */}
+                <div style={{ ...cardStyle }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: "#cfe4f7", margin: "0 0 12px" }}>📋 종합 요약</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    {[
+                      { label: "월 총 납입", value: formatFull(isaMonthly + pensionMonthly), color: "#7ec8e3" },
+                      { label: "연간 예상 배당", value: formatKRW(holdingCalc.annualDiv), color: "#f0a500" },
+                      { label: "총 보유 종목", value: `${holdings.length}종목`, color: "#a78bfa" },
+                      { label: "누적 배당 수령", value: formatKRW(totalDivReceived), color: "#34d399" },
+                      { label: "ISA 평가금액", value: formatKRW(holdingCalc.totalIsaVal), color: "#7ec8e3" },
+                      { label: "연금 평가금액", value: formatKRW(holdingCalc.totalPenVal), color: "#a78bfa" },
+                    ].map(s => (
+                      <div key={s.label} style={{ background: "#081525", borderRadius: 10, padding: "10px", textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: "#4a7fa8", marginBottom: 3 }}>{s.label}</div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: s.color }}>{s.value}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
+              </>
+            ) : (
+              <div style={{ ...cardStyle, textAlign: "center", padding: "40px 20px" }}>
+                <div style={{ fontSize: 40, marginBottom: 16 }}>🌙</div>
+                <p style={{ fontSize: 15, color: "#7ec8e3", fontWeight: 700, marginBottom: 8 }}>설정을 먼저 입력해주세요</p>
+                <p style={{ fontSize: 13, color: "#4a7fa8" }}>⚙️ 설정 탭에서 나이와 목표 금액을 입력하면<br/>현황이 자동으로 계산돼요</p>
+                <button onClick={() => setTab("settings")} style={{ marginTop: 16, padding: "10px 24px", borderRadius: 20, border: "none", background: "#7ec8e3", color: "#06111e", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                  설정하러 가기 →
+                </button>
               </div>
-            ))}
-            <div style={{ ...cardStyle, display: "flex", justifyContent: "space-around", textAlign: "center" }}>
-              {[
-                { label: "월 총 납입", value: formatFull(isaMonthly + pensionMonthly), color: "#7ec8e3" },
-                { label: "연간 배당(예상)", value: formatKRW(holdingCalc.annualDiv), color: "#f0a500" },
-                { label: "보유 종목 수", value: `${holdings.length}종목`, color: "#a78bfa" },
-              ].map(s => (
-                <div key={s.label}>
-                  <div style={{ fontSize: 10, color: "#4a7fa8", marginBottom: 3 }}>{s.label}</div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: s.color }}>{s.value}</div>
-                </div>
-              ))}
-            </div>
+            )}
           </div>
         )}
 
@@ -341,65 +397,66 @@ export default function App() {
                 <div key={acc.label} style={cardStyle}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <span style={{ fontSize: 15, fontWeight: 700, color: acc.color }}>{acc.label}</span>
-                    <span style={{ fontSize: 12, color: pnl >= 0 ? "#34d399" : "#f87171", fontWeight: 700 }}>{pnl >= 0 ? "+" : ""}{formatKRW(pnl)} ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%)</span>
+                    {acc.totalCost > 0 && <span style={{ fontSize: 12, color: pnl >= 0 ? "#34d399" : "#f87171", fontWeight: 700 }}>{pnl >= 0 ? "+" : ""}{formatKRW(pnl)} ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%)</span>}
                   </div>
-                  {acc.items.length > 0 && (
-                    <>
-                      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
-                        <DonutChart data={donutData} size={130} />
-                        <div style={{ flex: 1 }}>
-                          {donutData.map((d, i) => (
-                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
-                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
-                              <span style={{ fontSize: 11, color: "#cfe4f7", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.label}</span>
-                              <span style={{ fontSize: 11, color: d.color, fontWeight: 700, flexShrink: 0 }}>{formatKRW(d.value)}</span>
-                            </div>
-                          ))}
+                  {acc.items.length === 0
+                    ? <p style={{ fontSize: 12, color: "#4a7fa8", textAlign: "center", padding: "16px 0" }}>종목을 추가해주세요</p>
+                    : (
+                      <>
+                        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
+                          <DonutChart data={donutData} size={130} />
+                          <div style={{ flex: 1 }}>
+                            {donutData.map((d, i) => (
+                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                                <div style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+                                <span style={{ fontSize: 11, color: "#cfe4f7", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.label}</span>
+                                <span style={{ fontSize: 11, color: d.color, fontWeight: 700, flexShrink: 0 }}>{formatKRW(d.value)}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                      <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                          <thead>
-                            <tr style={{ borderBottom: "1px solid #1e3a5f" }}>
-                              {["순서","종목명","주수","평균단가","현재가","손익","관리"].map(h => (
-                                <th key={h} style={{ padding: "6px 3px", color: "#4a7fa8", fontWeight: 600, textAlign: h === "종목명" ? "left" : "center" }}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {acc.items.map((h, i) => {
-                              const val = h.currentPrice * h.shares;
-                              const cost = h.avgPrice * h.shares;
-                              const gain = val - cost;
-                              const gainPct = cost > 0 ? (gain / cost) * 100 : 0;
-                              const globalIdx = holdings.findIndex(x => x.id === h.id);
-                              return (
-                                <tr key={h.id} style={{ borderBottom: "1px solid #0f2030" }}>
-                                  <td style={{ padding: "6px 3px", textAlign: "center" }}>
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                      <button onClick={() => moveHolding(h.id, -1)} style={{ ...btnSmall("#4a7fa8"), padding: "1px 6px" }}>▲</button>
-                                      <button onClick={() => moveHolding(h.id, 1)} style={{ ...btnSmall("#4a7fa8"), padding: "1px 6px" }}>▼</button>
-                                    </div>
-                                  </td>
-                                  <td style={{ padding: "6px 3px", color: COLORS[i % COLORS.length], fontWeight: 600, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</td>
-                                  <td style={{ padding: "6px 3px", textAlign: "center", color: "#cfe4f7" }}>{h.shares}주</td>
-                                  <td style={{ padding: "6px 3px", textAlign: "right", color: "#6b9fca" }}>{h.avgPrice.toLocaleString()}</td>
-                                  <td style={{ padding: "6px 3px", textAlign: "right", color: "#cfe4f7" }}>{h.currentPrice.toLocaleString()}</td>
-                                  <td style={{ padding: "6px 3px", textAlign: "right", color: gain >= 0 ? "#34d399" : "#f87171", fontWeight: 700 }}>{gain >= 0 ? "+" : ""}{gainPct.toFixed(1)}%</td>
-                                  <td style={{ padding: "6px 3px", textAlign: "center" }}>
-                                    <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
-                                      <button onClick={() => { setEditHolding({...h}); setShowAddHolding(true); }} style={btnSmall("#f0a500")}>수정</button>
-                                      <button onClick={() => setHoldings(holdings.filter(x => x.id !== h.id))} style={btnSmall("#f87171")}>삭제</button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
+                        <div style={{ overflowX: "auto" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                            <thead>
+                              <tr style={{ borderBottom: "1px solid #1e3a5f" }}>
+                                {["순서","종목명","주수","평균단가","현재가","손익","관리"].map(h => (
+                                  <th key={h} style={{ padding: "6px 3px", color: "#4a7fa8", fontWeight: 600, textAlign: h === "종목명" ? "left" : "center" }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {acc.items.map((h, i) => {
+                                const gain = (h.currentPrice - h.avgPrice) / h.avgPrice * 100;
+                                return (
+                                  <tr key={h.id} style={{ borderBottom: "1px solid #0f2030" }}>
+                                    <td style={{ padding: "6px 3px", textAlign: "center" }}>
+                                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                        <button onClick={() => moveHolding(h.id, -1)} style={{ ...btnSmall("#4a7fa8"), padding: "1px 6px" }}>▲</button>
+                                        <button onClick={() => moveHolding(h.id, 1)} style={{ ...btnSmall("#4a7fa8"), padding: "1px 6px" }}>▼</button>
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: "6px 3px", color: COLORS[i % COLORS.length], fontWeight: 600, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</td>
+                                    <td style={{ padding: "6px 3px", textAlign: "center", color: "#cfe4f7" }}>{h.shares}주</td>
+                                    <td style={{ padding: "6px 3px", textAlign: "right", color: "#6b9fca" }}>{h.avgPrice.toLocaleString()}</td>
+                                    <td style={{ padding: "6px 3px", textAlign: "right", color: "#cfe4f7" }}>{h.currentPrice.toLocaleString()}</td>
+                                    <td style={{ padding: "6px 3px", textAlign: "right", color: h.avgPrice > 0 ? (gain >= 0 ? "#34d399" : "#f87171") : "#4a7fa8", fontWeight: 700 }}>
+                                      {h.avgPrice > 0 ? `${gain >= 0 ? "+" : ""}${gain.toFixed(1)}%` : "-"}
+                                    </td>
+                                    <td style={{ padding: "6px 3px", textAlign: "center" }}>
+                                      <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
+                                        <button onClick={() => { setEditHolding({...h}); setShowAddHolding(true); }} style={btnSmall("#f0a500")}>수정</button>
+                                        <button onClick={() => setHoldings(holdings.filter(x => x.id !== h.id))} style={btnSmall("#f87171")}>삭제</button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )
+                  }
                 </div>
               );
             })}
@@ -416,24 +473,28 @@ export default function App() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     {[
-                      { label: "계좌", type: "select", options: ["ISA","연금"], value: editHolding ? editHolding.account : newHolding.account, onChange: v => editHolding ? setEditHolding({...editHolding, account: v}) : setNewHolding({...newHolding, account: v}) },
-                      { label: "종목명", type: "text", value: editHolding ? editHolding.name : newHolding.name, onChange: v => editHolding ? setEditHolding({...editHolding, name: v}) : setNewHolding({...newHolding, name: v}), placeholder: "예: TIGER 나스닥100" },
-                      { label: "보유 주수", type: "number", step: 1, value: editHolding ? editHolding.shares : newHolding.shares, onChange: v => editHolding ? setEditHolding({...editHolding, shares: Number(v)}) : setNewHolding({...newHolding, shares: Number(v)}) },
-                      { label: "평균 매입가(원)", type: "number", step: 100, value: editHolding ? editHolding.avgPrice : newHolding.avgPrice, onChange: v => editHolding ? setEditHolding({...editHolding, avgPrice: Number(v)}) : setNewHolding({...newHolding, avgPrice: Number(v)}) },
-                      { label: "현재가(원)", type: "number", step: 100, value: editHolding ? editHolding.currentPrice : newHolding.currentPrice, onChange: v => editHolding ? setEditHolding({...editHolding, currentPrice: Number(v)}) : setNewHolding({...newHolding, currentPrice: Number(v)}) },
-                      { label: "주당 배당금(원)", type: "number", step: 1, value: editHolding ? editHolding.dividendPerShare : newHolding.dividendPerShare, onChange: v => editHolding ? setEditHolding({...editHolding, dividendPerShare: Number(v)}) : setNewHolding({...newHolding, dividendPerShare: Number(v)}) },
-                    ].map(f => (
-                      <div key={f.label}>
-                        <label style={labelStyle}>{f.label}</label>
-                        {f.type === "select"
-                          ? <select value={f.value} onChange={e => f.onChange(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>{f.options.map(o => <option key={o} value={o}>{o}</option>)}</select>
-                          : <input type={f.type} step={f.step} value={f.value} placeholder={f.placeholder || ""} onChange={e => f.onChange(e.target.value)} style={inputStyle} />
-                        }
-                      </div>
-                    ))}
+                      { label: "계좌", type: "select", options: ["ISA","연금"], field: "account" },
+                      { label: "종목명", type: "text", field: "name", placeholder: "예: TIGER 나스닥100" },
+                      { label: "보유 주수", type: "number", step: 1, field: "shares" },
+                      { label: "평균 매입가(원)", type: "number", step: 100, field: "avgPrice" },
+                      { label: "현재가(원)", type: "number", step: 100, field: "currentPrice" },
+                      { label: "주당 배당금(원)", type: "number", step: 1, field: "dividendPerShare" },
+                    ].map(f => {
+                      const cur = editHolding || newHolding;
+                      const setter = editHolding ? setEditHolding : setNewHolding;
+                      return (
+                        <div key={f.label}>
+                          <label style={labelStyle}>{f.label}</label>
+                          {f.type === "select"
+                            ? <select value={cur[f.field]} onChange={e => setter({...cur, [f.field]: e.target.value})} style={{ ...inputStyle, appearance: "none" }}>{f.options.map(o => <option key={o} value={o}>{o}</option>)}</select>
+                            : <input type={f.type} step={f.step} value={cur[f.field]} placeholder={f.placeholder || ""} onChange={e => setter({...cur, [f.field]: f.type === "number" ? Number(e.target.value) : e.target.value})} style={inputStyle} />
+                          }
+                        </div>
+                      );
+                    })}
                     <div style={{ gridColumn: "1/-1" }}>
                       <label style={labelStyle}>배당 주기</label>
-                      <select value={editHolding ? editHolding.dividendMonth : newHolding.dividendMonth} onChange={e => editHolding ? setEditHolding({...editHolding, dividendMonth: e.target.value}) : setNewHolding({...newHolding, dividendMonth: e.target.value})} style={{ ...inputStyle, appearance: "none" }}>
+                      <select value={(editHolding || newHolding).dividendMonth} onChange={e => { const cur = editHolding || newHolding; const setter = editHolding ? setEditHolding : setNewHolding; setter({...cur, dividendMonth: e.target.value}); }} style={{ ...inputStyle, appearance: "none" }}>
                         {["월","분기","반기","연","-"].map(v => <option key={v} value={v}>{v}</option>)}
                       </select>
                     </div>
@@ -448,6 +509,7 @@ export default function App() {
                       setNewHolding({ account: "ISA", name: "", shares: 1, avgPrice: 0, currentPrice: 0, dividendPerShare: 0, dividendMonth: "월" });
                     }
                     setShowAddHolding(false);
+                    showSaved();
                   }} style={{ padding: "10px", borderRadius: 10, border: "none", background: "linear-gradient(90deg,#1e5a8a,#7ec8e3)", color: "#06111e", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                     {editHolding ? "수정 저장" : "종목 저장"}
                   </button>
@@ -498,6 +560,7 @@ export default function App() {
                       setNewExtraBuy({ name: "", shares: 1, price: 0, date: `${now.getFullYear()}-${now.getMonth() + 1}`, account: "ISA", memo: "" });
                     }
                     setShowAddExtraBuy(false);
+                    showSaved();
                   }} style={{ width: "100%", padding: "9px", borderRadius: 10, border: "none", background: "linear-gradient(90deg,#3a2a00,#f0a500)", color: "#06111e", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                     {editExtraBuy ? "수정 저장" : "기록 저장"}
                   </button>
@@ -509,11 +572,11 @@ export default function App() {
                   <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid #0f2030" }}>
                     <div>
                       <span style={{ fontSize: 13, color: "#f0a500", fontWeight: 600 }}>{b.name}</span>
-                      <span style={{ fontSize: 11, color: "#4a7fa8", marginLeft: 6 }}>[{b.account}] {b.date.replace("-", "년 ")}월</span>
+                      <span style={{ fontSize: 11, color: "#4a7fa8", marginLeft: 6 }}>[{b.account}] {b.date}월</span>
                       {b.memo && <span style={{ fontSize: 10, color: "#4a7fa8", marginLeft: 6 }}>· {b.memo}</span>}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: "#cfe4f7" }}>{b.shares}주 · {b.price.toLocaleString()}원</span>
+                      <span style={{ fontSize: 12, color: "#cfe4f7" }}>{b.shares}주</span>
                       <button onClick={() => { setEditExtraBuy({...b}); setShowAddExtraBuy(true); }} style={btnSmall("#f0a500")}>수정</button>
                       <button onClick={() => setExtraBuys(extraBuys.filter(x => x.id !== b.id))} style={btnSmall("#f87171")}>삭제</button>
                     </div>
@@ -555,14 +618,13 @@ export default function App() {
                     ? <tr><td colSpan={5} style={{ textAlign: "center", color: "#4a7fa8", padding: "20px 0", fontSize: 12 }}>배당 종목을 추가해주세요</td></tr>
                     : holdings.filter(h => h.dividendPerShare > 0).map((h, i) => {
                         const freq = h.dividendMonth === "월" ? 12 : h.dividendMonth === "분기" ? 4 : h.dividendMonth === "반기" ? 2 : 1;
-                        const annual = h.dividendPerShare * h.shares * freq;
                         return (
                           <tr key={h.id} style={{ borderBottom: "1px solid #0f2030" }}>
                             <td style={{ padding: "8px 4px", color: COLORS[i % COLORS.length], fontWeight: 600, maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</td>
                             <td style={{ padding: "8px 4px", textAlign: "right", color: "#cfe4f7" }}>{h.shares}주</td>
                             <td style={{ padding: "8px 4px", textAlign: "right", color: "#6b9fca" }}>{h.dividendMonth}</td>
                             <td style={{ padding: "8px 4px", textAlign: "right", color: "#cfe4f7" }}>{h.dividendPerShare.toLocaleString()}원</td>
-                            <td style={{ padding: "8px 4px", textAlign: "right", color: "#f0a500", fontWeight: 700 }}>{formatKRW(annual)}</td>
+                            <td style={{ padding: "8px 4px", textAlign: "right", color: "#f0a500", fontWeight: 700 }}>{formatKRW(h.dividendPerShare * h.shares * freq)}</td>
                           </tr>
                         );
                       })
@@ -571,7 +633,6 @@ export default function App() {
               </table>
             </div>
 
-            {/* 배당 수령 기록 */}
             <div style={cardStyle}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <p style={{ fontSize: 14, fontWeight: 700, color: "#34d399", margin: 0 }}>💵 배당 수령 기록</p>
@@ -587,18 +648,9 @@ export default function App() {
                       const setter = editDiv ? setEditDiv : setNewDiv;
                       return (
                         <>
-                          <div>
-                            <label style={labelStyle}>종목명</label>
-                            <input value={cur.name} onChange={e => setter({...cur, name: e.target.value})} style={inputStyle} placeholder="종목명 입력" />
-                          </div>
-                          <div>
-                            <label style={labelStyle}>수령 금액(원)</label>
-                            <input type="number" step={100} value={cur.amount} onChange={e => setter({...cur, amount: Number(e.target.value)})} style={inputStyle} />
-                          </div>
-                          <div>
-                            <label style={labelStyle}>수령 월(YYYY-M)</label>
-                            <input value={cur.month} onChange={e => setter({...cur, month: e.target.value})} style={inputStyle} placeholder="2025-5" />
-                          </div>
+                          <div><label style={labelStyle}>종목명</label><input value={cur.name} onChange={e => setter({...cur, name: e.target.value})} style={inputStyle} placeholder="종목명 입력" /></div>
+                          <div><label style={labelStyle}>수령 금액(원)</label><input type="number" step={100} value={cur.amount} onChange={e => setter({...cur, amount: Number(e.target.value)})} style={inputStyle} /></div>
+                          <div><label style={labelStyle}>수령 월(YYYY-M)</label><input value={cur.month} onChange={e => setter({...cur, month: e.target.value})} style={inputStyle} placeholder="2025-5" /></div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 20 }}>
                             <input type="checkbox" id="reinvest" checked={cur.reinvested} onChange={e => setter({...cur, reinvested: e.target.checked})} />
                             <label htmlFor="reinvest" style={{ ...labelStyle, margin: 0, color: "#34d399" }}>재투자 완료</label>
@@ -617,6 +669,7 @@ export default function App() {
                       setNewDiv({ name: "", amount: 0, month: `${now.getFullYear()}-${now.getMonth() + 1}`, reinvested: true });
                     }
                     setShowAddDiv(false);
+                    showSaved();
                   }} style={{ width: "100%", padding: "9px", borderRadius: 10, border: "none", background: "linear-gradient(90deg,#0f4a2a,#34d399)", color: "#06111e", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                     {editDiv ? "수정 저장" : "기록 저장"}
                   </button>
@@ -628,7 +681,7 @@ export default function App() {
                   <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid #0f2030" }}>
                     <div>
                       <span style={{ fontSize: 13, color: "#cfe4f7", fontWeight: 600 }}>{d.name}</span>
-                      <span style={{ fontSize: 11, color: "#4a7fa8", marginLeft: 8 }}>{d.month.replace("-", "년 ")}월</span>
+                      <span style={{ fontSize: 11, color: "#4a7fa8", marginLeft: 8 }}>{d.month}월</span>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ fontSize: 13, color: "#f0a500", fontWeight: 700 }}>+{d.amount.toLocaleString()}원</span>
@@ -666,7 +719,7 @@ export default function App() {
               <IsaTimeline isaOpenYear={isaOpenYear} isaCycle={isaCycle} />
             </div>
             <div style={cardStyle}>
-              <p style={{ fontSize: 14, fontWeight: 700, color: "#34d399", margin: "0 0 12px" }}>✅ ISA → 연금 이전 혜택 체크리스트</p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: "#34d399", margin: "0 0 12px" }}>✅ ISA → 연금 이전 체크리스트</p>
               {[
                 { ok: true, text: "이전 금액의 10% 추가 세액공제 (최대 300만원)" },
                 { ok: true, text: "ISA 비과세 혜택 (서민형 400만원, 일반 200만원) 그대로 적용" },
@@ -682,7 +735,7 @@ export default function App() {
               ))}
             </div>
             <div style={{ ...cardStyle, background: "linear-gradient(135deg,#0a2020,#0d2f1e)" }}>
-              <p style={{ fontSize: 14, fontWeight: 700, color: "#34d399", margin: "0 0 10px" }}>💡 이전 시 절세 효과 (예시)</p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: "#34d399", margin: "0 0 10px" }}>💡 이전 시 절세 효과</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 {[
                   { label: "ISA 이전 금액", value: formatKRW(isaBalance), color: "#7ec8e3" },
@@ -705,17 +758,10 @@ export default function App() {
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
               {YEARS.map(y => (
-                <button key={y} onClick={() => setSelectedYear(y)} style={{
-                  padding: "5px 12px", borderRadius: 20, border: "none",
-                  background: selectedYear === y ? "#7ec8e3" : "#0d1b2a",
-                  color: selectedYear === y ? "#06111e" : "#7ec8e3",
-                  fontWeight: 700, fontSize: 12, cursor: "pointer",
-                }}>{y}</button>
+                <button key={y} onClick={() => setSelectedYear(y)} style={{ padding: "5px 12px", borderRadius: 20, border: "none", background: selectedYear === y ? "#7ec8e3" : "#0d1b2a", color: selectedYear === y ? "#06111e" : "#7ec8e3", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{y}</button>
               ))}
             </div>
-
-            {/* 연간 합산 요약 */}
-            <div style={{ ...cardStyle }}>
+            <div style={cardStyle}>
               <p style={{ fontSize: 13, fontWeight: 700, color: "#7ec8e3", margin: "0 0 10px" }}>📊 {selectedYear}년 납입 합산</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 {[
@@ -738,8 +784,6 @@ export default function App() {
                 </span>
               </div>
             </div>
-
-            {/* 월별 체크 */}
             <div style={cardStyle}>
               {MONTHS.map((m, i) => {
                 const key = `${selectedYear}-${i}`;
@@ -748,36 +792,25 @@ export default function App() {
                 const isCurrent = i === now.getMonth() && selectedYear === now.getFullYear();
                 return (
                   <div key={i} style={{ marginBottom: 8, background: "#081525", borderRadius: 12, padding: "10px 12px", opacity: !isPast ? 0.45 : 1, border: isCurrent ? "1px solid #7ec8e366" : "1px solid transparent" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: rec.isa || rec.pension ? 8 : 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: "#cfe4f7" }}>{m}</span>
                       <div style={{ display: "flex", gap: 6 }}>
                         {[{ type: "isa", label: "ISA", color: "#7ec8e3" }, { type: "pension", label: "연금", color: "#a78bfa" }].map(({ type, label, color }) => (
-                          <button key={type} onClick={() => isPast && toggleRecord(i, type)} style={{
-                            padding: "4px 10px", borderRadius: 16,
-                            border: `1px solid ${rec[type] ? color : "#1e3a5f"}`,
-                            background: rec[type] ? `${color}22` : "transparent",
-                            color: rec[type] ? color : "#4a7fa8",
-                            fontSize: 11, fontWeight: 600,
-                            cursor: isPast ? "pointer" : "default",
-                          }}>{rec[type] ? "✓ " : ""}{label}</button>
+                          <button key={type} onClick={() => isPast && toggleRecord(i, type)} style={{ padding: "4px 10px", borderRadius: 16, border: `1px solid ${rec[type] ? color : "#1e3a5f"}`, background: rec[type] ? `${color}22` : "transparent", color: rec[type] ? color : "#4a7fa8", fontSize: 11, fontWeight: 600, cursor: isPast ? "pointer" : "default" }}>
+                            {rec[type] ? "✓ " : ""}{label}
+                          </button>
                         ))}
                       </div>
                     </div>
-                    {/* 추가납입/추가매수 입력 */}
                     {isPast && (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 6 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
                         {[
                           { field: "extraIsa", label: "ISA 추가납입(원)", color: "#34d399" },
                           { field: "extraPension", label: "연금 추가납입(원)", color: "#f0a500" },
                         ].map(f => (
                           <div key={f.field}>
                             <label style={{ ...labelStyle, fontSize: 10 }}>{f.label}</label>
-                            <input
-                              type="number" step={10000}
-                              value={rec[f.field] || 0}
-                              onChange={e => updateExtraAmount(i, f.field, e.target.value)}
-                              style={{ ...inputStyle, fontSize: 12, padding: "5px 8px", borderColor: f.color + "44" }}
-                            />
+                            <input type="number" step={10000} value={rec[f.field] || 0} onChange={e => updateExtraAmount(i, f.field, e.target.value)} style={{ ...inputStyle, fontSize: 12, padding: "5px 8px", borderColor: f.color + "44" }} />
                           </div>
                         ))}
                       </div>
@@ -792,6 +825,9 @@ export default function App() {
         {/* ══ SETTINGS ══ */}
         {tab === "settings" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ padding: "10px 14px", background: "#06200f", borderRadius: 12, fontSize: 12, color: "#34d399", borderLeft: "3px solid #34d399" }}>
+              💾 모든 입력값은 자동으로 저장돼요. 앱을 닫아도 그대로 유지돼요!
+            </div>
             <div style={cardStyle}>
               <h3 style={{ fontSize: 14, color: "#7ec8e3", margin: "0 0 14px", fontWeight: 700 }}>👤 기본 정보</h3>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -830,9 +866,7 @@ export default function App() {
                     <div key={f.label} style={f.label.includes("수익률") ? { gridColumn: "1/-1" } : {}}>
                       <label style={labelStyle}>{f.label}</label>
                       <input type="number" step={f.step} value={f.value} onChange={e => f.set(Number(e.target.value))} style={inputStyle} />
-                      {(f.label.includes("잔액") || f.label.includes("납입")) && (
-                        <span style={{ fontSize: 11, color: "#4a7fa8", marginTop: 3, display: "block" }}>= {formatKRW(f.value)}</span>
-                      )}
+                      {(f.label.includes("잔액") || f.label.includes("납입")) && <span style={{ fontSize: 11, color: "#4a7fa8", marginTop: 3, display: "block" }}>= {formatKRW(f.value)}</span>}
                     </div>
                   ))}
                 </div>
